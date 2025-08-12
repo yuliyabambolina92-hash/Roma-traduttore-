@@ -1,0 +1,18 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "A Discord bot that automatically translates messages when users react with flag emojis using the free Google Translate API.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@vitalets/google-translate-api": "^9.2.1",
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
+  }
+}
