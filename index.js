@@ -101,7 +101,7 @@ const flagToLanguage = {
     '🇮🇩': 'id',    // Indonesian
     '🇲🇾': 'ms',    // Malay
     '🇵🇭': 'tl',    // Filipino
-    
+    '🇹🇭': 'th',    // Thai
     // Middle Eastern Languages
     '🇸🇦': 'ar',    // Arabic
     '🇮🇷': 'fa',    // Persian
