@@ -1,13 +1,12 @@
 // Discord Translation Bot using discord.js v14
 // Translates messages when users react with flag emojis
 
-// Import required modules
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
-const { translate } = require('@vitalets/google-translate-api');
+const translate = require('@vitalets/google-translate-api'); // ✅ Funzione corretta
 const express = require('express');
 require('dotenv').config();
 
-// Create a new Discord client with necessary intents and partials
+// --- Discord Client ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -22,70 +21,66 @@ const client = new Client({
     ]
 });
 
-// Cache to track recent translations and prevent duplicates
+// --- Translation Cache ---
 const translationCache = new Set();
-
-// Functions for cache management
-function createCacheKey(messageId, emoji) {
-    return `${messageId}_${emoji}`;
-}
+function createCacheKey(messageId, emoji) { return `${messageId}_${emoji}`; }
 function addToCache(messageId, emoji) {
-    const cacheKey = createCacheKey(messageId, emoji);
-    translationCache.add(cacheKey);
-    setTimeout(() => {
-        translationCache.delete(cacheKey);
-    }, 60000);
+    const key = createCacheKey(messageId, emoji);
+    translationCache.add(key);
+    setTimeout(() => translationCache.delete(key), 60000); // 60 sec
 }
-function isInCache(messageId, emoji) {
-    return translationCache.has(createCacheKey(messageId, emoji));
-}
+function isInCache(messageId, emoji) { return translationCache.has(createCacheKey(messageId, emoji)); }
 
-// Mapping of flags to languages
+// --- Flag to Language Mapping ---
 const flagToLanguage = {
-    '🇮🇹': 'it','🇫🇷': 'fr','🇪🇸': 'es','🇩🇪': 'de','🇳🇱': 'nl','🇵🇹': 'pt',
-    '🇷🇺': 'ru','🇵🇱': 'pl','🇸🇪': 'sv','🇳🇴': 'no','🇩🇰': 'da','🇫🇮': 'fi',
-    '🇬🇷': 'el','🇭🇺': 'hu','🇨🇿': 'cs','🇸🇰': 'sk','🇷🇴': 'ro','🇧🇬': 'bg',
-    '🇭🇷': 'hr','🇸🇮': 'sl','🇱🇹': 'lt','🇱🇻': 'lv','🇪🇪': 'et','🇯🇵': 'ja',
-    '🇰🇷': 'ko','🇨🇳': 'zh-cn','🇹🇼': 'zh-tw','🇹🇭': 'th','🇻🇳': 'vi','🇮🇳': 'hi',
-    '🇮🇩': 'id','🇲🇾': 'ms','🇵🇭': 'tl','🇸🇦': 'ar','🇮🇷': 'fa','🇹🇷': 'tr',
-    '🇮🇱': 'he','🇺🇸': 'en','🇬🇧': 'en','🇨🇦': 'en','🇦🇺': 'en','🇳🇿': 'en',
-    '🇿🇦': 'af','🇪🇹': 'am','🇲🇽': 'es','🇧🇷': 'pt','🇦🇷': 'es','🇺🇦': 'uk',
-    '🇧🇾': 'be','🇷🇸': 'sr','🇲🇰': 'mk','🇦🇱': 'sq','🇮🇸': 'is','🇮🇪': 'ga',
-    '🇲🇹': 'mt','🇱🇺': 'lb','🇨🇭': 'de','🇦🇹': 'de','🇧🇪': 'nl','🇲🇨': 'fr'
+    '🇮🇹':'it','🇫🇷':'fr','🇪🇸':'es','🇩🇪':'de','🇳🇱':'nl','🇵🇹':'pt','🇷🇺':'ru','🇵🇱':'pl',
+    '🇸🇪':'sv','🇳🇴':'no','🇩🇰':'da','🇫🇮':'fi','🇬🇷':'el','🇭🇺':'hu','🇨🇿':'cs','🇸🇰':'sk',
+    '🇷🇴':'ro','🇧🇬':'bg','🇭🇷':'hr','🇸🇮':'sl','🇱🇹':'lt','🇱🇻':'lv','🇪🇪':'et',
+    '🇯🇵':'ja','🇰🇷':'ko','🇨🇳':'zh-cn','🇹🇼':'zh-tw','🇹🇭':'th','🇻🇳':'vi','🇮🇳':'hi','🇮🇩':'id',
+    '🇲🇾':'ms','🇵🇭':'tl','🇸🇦':'ar','🇮🇷':'fa','🇹🇷':'tr','🇮🇱':'he','🇺🇸':'en','🇬🇧':'en',
+    '🇨🇦':'en','🇦🇺':'en','🇳🇿':'en','🇿🇦':'af','🇪🇹':'am','🇲🇽':'es','🇧🇷':'pt','🇦🇷':'es',
+    '🇺🇦':'uk','🇧🇾':'be','🇷🇸':'sr','🇲🇰':'mk','🇦🇱':'sq','🇮🇸':'is','🇮🇪':'ga','🇲🇹':'mt',
+    '🇱🇺':'lb','🇨🇭':'de','🇦🇹':'de','🇧🇪':'nl','🇲🇨':'fr'
 };
 
-// ✅ Updated translation with retry system
+// --- Improved translateText Function with rate limiting ---
+let lastTranslationTime = 0;
 async function translateText(text, targetLang) {
     try {
-        console.log(`Attempting to translate: "${text}" → ${targetLang}`);
+        const now = Date.now();
+        const timeSinceLast = now - lastTranslationTime;
+        if (timeSinceLast < 2000) await new Promise(r => setTimeout(r, 2000 - timeSinceLast));
+        lastTranslationTime = Date.now();
 
         const cleanText = text.trim();
-        if (!cleanText) throw new Error('Empty text provided');
+        if (!cleanText) throw new Error('Empty text provided for translation');
 
-        // First attempt
         const result = await translate(cleanText, { to: targetLang });
-        if (!result || !result.text) throw new Error('Empty result from API');
+        if (!result || !result.text) throw new Error('Empty result from translation API');
 
-        console.log(`Translation successful: "${result.text}"`);
+        console.log(`✅ Translation successful: "${result.text}"`);
         return result.text;
-
     } catch (error) {
-        console.error('First translation attempt failed:', error.message);
-
-        // Retry once
-        try {
-            const retry = await translate(text.trim(), { to: targetLang });
-            if (!retry || !retry.text) throw new Error('Empty result on retry');
-            console.log(`Retry successful: "${retry.text}"`);
-            return retry.text;
-        } catch (retryError) {
-            console.error('Retry failed:', retryError.message);
-            throw new Error(`Translation failed (${targetLang}): ${retryError.message}`);
-        }
+        console.error('❌ Translation error:', error.message);
+        throw new Error(`Translation failed (${targetLang}): ${error.message}`);
     }
 }
 
-// Handle reactions
+// --- Helper: Language Name ---
+function getLanguageName(code) {
+    const names = {
+        it:'Italian',fr:'French',es:'Spanish',de:'German',nl:'Dutch',pt:'Portuguese',ru:'Russian',
+        pl:'Polish',sv:'Swedish',no:'Norwegian',da:'Danish',fi:'Finnish',el:'Greek',hu:'Hungarian',
+        cs:'Czech',sk:'Slovak',ro:'Romanian',bg:'Bulgarian',hr:'Croatian',sl:'Slovenian',lt:'Lithuanian',
+        lv:'Latvian',et:'Estonian',ja:'Japanese',ko:'Korean','zh-cn':'Chinese (Simplified)','zh-tw':'Chinese (Traditional)',
+        th:'Thai',vi:'Vietnamese',hi:'Hindi',id:'Indonesian',ms:'Malay',tl:'Filipino',ar:'Arabic',fa:'Persian',
+        tr:'Turkish',he:'Hebrew',en:'English',af:'Afrikaans',am:'Amharic',uk:'Ukrainian',be:'Belarusian',
+        sr:'Serbian',mk:'Macedonian',sq:'Albanian',is:'Icelandic',ga:'Irish',mt:'Maltese',lb:'Luxembourgish'
+    };
+    return names[code] || code.toUpperCase();
+}
+
+// --- Handle Reactions ---
 async function handleReaction(reaction, user) {
     try {
         if (user.bot) return;
@@ -94,61 +89,42 @@ async function handleReaction(reaction, user) {
 
         const emoji = reaction.emoji.name;
         const message = reaction.message;
-
         if (!flagToLanguage[emoji]) return;
         if (isInCache(message.id, emoji)) return;
-        if (!message.content.trim()) return;
+        if (!message.content || message.content.trim().length < 2) return;
 
-        const targetLanguage = flagToLanguage[emoji];
-        const translatedText = await translateText(message.content, targetLanguage);
-
-        const replyMessage = `🌐 **Translation to ${getLanguageName(targetLanguage)}** ${emoji}\n\`\`\`\n${translatedText}\n\`\`\``;
-        await message.reply(replyMessage);
-
+        const targetLang = flagToLanguage[emoji];
+        const translated = await translateText(message.content, targetLang);
+        await message.reply(`🌐 **Translation to ${getLanguageName(targetLang)}** ${emoji}\n\`\`\`\n${translated}\n\`\`\``);
         addToCache(message.id, emoji);
 
     } catch (error) {
         console.error('Error in handleReaction:', error);
-        try {
-            await reaction.message.reply(`❌ Translation failed: ${error.message}`);
-        } catch {}
+        try { await reaction.message.reply('❌ Error translating this message.'); } catch {}
     }
 }
 
-// Language names
-function getLanguageName(langCode) {
-    const names = { 'it':'Italian','fr':'French','es':'Spanish','de':'German','nl':'Dutch','pt':'Portuguese',
-        'ru':'Russian','pl':'Polish','sv':'Swedish','no':'Norwegian','da':'Danish','fi':'Finnish',
-        'el':'Greek','hu':'Hungarian','cs':'Czech','sk':'Slovak','ro':'Romanian','bg':'Bulgarian',
-        'hr':'Croatian','sl':'Slovenian','lt':'Lithuanian','lv':'Latvian','et':'Estonian','ja':'Japanese',
-        'ko':'Korean','zh-cn':'Chinese (Simplified)','zh-tw':'Chinese (Traditional)','th':'Thai',
-        'vi':'Vietnamese','hi':'Hindi','id':'Indonesian','ms':'Malay','tl':'Filipino','ar':'Arabic',
-        'fa':'Persian','tr':'Turkish','he':'Hebrew','en':'English','af':'Afrikaans','am':'Amharic',
-        'uk':'Ukrainian','be':'Belarusian','sr':'Serbian','mk':'Macedonian','sq':'Albanian','is':'Icelandic',
-        'ga':'Irish','mt':'Maltese','lb':'Luxembourgish' };
-    return names[langCode] || langCode.toUpperCase();
-}
-
-// Express server for uptime
+// --- Express Server for UptimeRobot ---
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.get('/', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));
-app.get('/health', (req, res) => res.json({ status: client.isReady() ? 'healthy' : 'not ready' }));
-app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
+app.get('/', (req, res) => res.send('Discord Translation Bot is running ✅'));
+app.get('/health', (req, res) => res.status(client.isReady() ? 200 : 503).json({ status: client.isReady() ? 'healthy' : 'not ready' }));
+app.listen(PORT, '0.0.0.0', () => console.log(`🌐 Web server running on port ${PORT}`));
 
-// Discord events
+// --- Discord Events ---
 client.once('ready', () => {
-    console.log(`🤖 Logged in as ${client.user.tag}`);
+    console.log(`🤖 Bot ready as ${client.user.tag} in ${client.guilds.cache.size} servers`);
     client.user.setActivity('flag reactions for translations', { type: 'WATCHING' });
 });
 client.on('messageReactionAdd', handleReaction);
-client.on('error', e => console.error('Discord error:', e));
-client.on('warn', w => console.warn('Discord warning:', w));
+client.on('error', console.error);
+client.on('warn', console.warn);
 
-// Login
+// --- Login ---
 const token = process.env.DISCORD_BOT_TOKEN;
-if (!token) {
-    console.error('❌ No Discord bot token found in environment variables!');
-    process.exit(1);
-}
-client.login(token);
+if (!token) { console.error('❌ Bot token missing!'); process.exit(1); }
+client.login(token).catch(e => { console.error('❌ Failed login:', e); process.exit(1); });
+
+// --- Graceful Shutdown ---
+process.on('SIGINT', () => { client.destroy(); process.exit(0); });
+process.on('SIGTERM', () => { client.destroy(); process.exit(0); });
