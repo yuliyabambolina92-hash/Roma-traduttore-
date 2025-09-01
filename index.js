@@ -148,42 +148,58 @@ async function translateText(text, targetLang) {
     try {
         console.log(`Attempting to translate: "${text}" to language: ${targetLang}`);
         
-        // Clean the text to avoid translation issues
+        // Clean and validate the text
         const cleanText = text.trim();
-        if (!cleanText) {
+        if (!cleanText || cleanText.length === 0) {
             throw new Error('Empty text provided for translation');
         }
         
-        // Use the translation library with proper options
-        // Don't specify 'from' to allow automatic source language detection
-        const result = await translate(cleanText, { 
-            to: targetLang,
-            // Don't specify 'from' parameter to allow auto-detection
-            // This prevents "AUTO is an invalid source language" errors
-        });
-        
-        // Validate the result
-        if (!result || !result.text) {
-            throw new Error('Translation API returned empty result');
+        // Skip translation if text is too short or only contains special characters
+        if (cleanText.length < 2) {
+            throw new Error('Text too short for translation');
         }
         
-        console.log(`Translation successful: "${result.text}"`);
-        return result.text;
+        // Use the translation library with timeout and retry logic
+        const translationOptions = { 
+            to: targetLang,
+            // Explicitly avoid setting 'from' to let API auto-detect
+            requestOptions: {
+                timeout: 10000, // 10 second timeout
+            }
+        };
+        
+        const result = await translate(cleanText, translationOptions);
+        
+        // Validate the translation result
+        if (!result || !result.text || result.text.trim() === '') {
+            throw new Error('Translation API returned empty or invalid result');
+        }
+        
+        // Check if translation actually occurred (not identical to original)
+        const translatedText = result.text.trim();
+        console.log(`Translation successful: "${translatedText}"`);
+        
+        return translatedText;
+        
     } catch (error) {
         console.error('Translation error details:', {
             message: error.message,
-            text: text,
-            targetLang: targetLang,
-            stack: error.stack
+            originalText: text,
+            targetLanguage: targetLang,
+            errorType: error.constructor.name
         });
         
-        // Handle specific error types
-        if (error.message.includes('invalid email')) {
-            throw new Error('Translation service temporarily unavailable (authentication issue)');
-        } else if (error.message.includes('invalid source language')) {
-            throw new Error('Source language detection failed');
-        } else if (error.message.includes('ENOTFOUND') || error.message.includes('timeout')) {
-            throw new Error('Translation service connection failed');
+        // Handle specific error types with user-friendly messages
+        if (error.message.includes('invalid email') || error.message.includes('Authentication')) {
+            throw new Error('Translation service authentication failed - please try again later');
+        } else if (error.message.includes('invalid source language') || error.message.includes('AUTO')) {
+            throw new Error('Could not detect source language - please try with clearer text');
+        } else if (error.message.includes('ENOTFOUND') || error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
+            throw new Error('Translation service temporarily unavailable - please try again');
+        } else if (error.message.includes('Rate limit') || error.message.includes('429')) {
+            throw new Error('Too many translation requests - please wait a moment');
+        } else if (error.message.includes('Empty text') || error.message.includes('too short')) {
+            throw new Error('Message text is too short or empty to translate');
         } else {
             throw new Error(`Translation failed: ${error.message}`);
         }
@@ -242,27 +258,42 @@ async function handleReaction(reaction, user) {
             return;
         }
 
-        // Check if the message has content to translate
+        // Validate message content for translation
         if (!message.content || message.content.trim() === '') {
-            console.log('Message has no content to translate');
+            console.log('Message has no content to translate - skipping');
             return; // Silently ignore messages without text content
         }
         
-        // Ignore messages that are only emojis, links, or mentions
+        // Enhanced content validation - ignore messages with only special content
         const textContent = message.content.trim();
-        const urlRegex = /https?:\/\/[^\s]+/g;
-        const mentionRegex = /<[@#&!][^>]+>/g;
-        const emojiRegex = /[\u{1F000}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu;
         
-        // Remove URLs, mentions, and emojis to check if there's actual text
+        // Regular expressions to identify non-translatable content
+        const urlRegex = /https?:\/\/[^\s]+/gi;
+        const mentionRegex = /<[@#&!]\d+>|<@[&!]?\d+>/gi;
+        const channelRegex = /<#\d+>/gi;
+        const emojiRegex = /[\u{1F000}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|<a?:\w+:\d+>/gu;
+        const codeBlockRegex = /```[\s\S]*?```|`[^`]+`/gi;
+        
+        // Remove non-translatable content to check if there's actual text
         const cleanedContent = textContent
             .replace(urlRegex, '')
             .replace(mentionRegex, '')
+            .replace(channelRegex, '')
             .replace(emojiRegex, '')
+            .replace(codeBlockRegex, '')
+            .replace(/\s+/g, ' ')
             .trim();
             
-        if (!cleanedContent || cleanedContent.length < 2) {
-            console.log('Message contains only URLs, mentions, or emojis - skipping translation');
+        // Skip translation if content is too short or empty after cleaning
+        if (!cleanedContent || cleanedContent.length < 3) {
+            console.log(`Message contains insufficient translatable content: "${cleanedContent}" - skipping`);
+            return;
+        }
+        
+        // Skip if message is mostly numbers or special characters
+        const wordCount = cleanedContent.split(/\s+/).filter(word => /[a-zA-ZÀ-ÿ\u0100-\u017F\u0400-\u04FF\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/.test(word)).length;
+        if (wordCount < 1) {
+            console.log('Message contains no recognizable words - skipping translation');
             return;
         }
 
@@ -359,45 +390,87 @@ function getLanguageName(langCode) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware to parse JSON and handle CORS
+app.use(express.json());
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
+
 // Root endpoint for uptime monitoring services
 app.get('/', (req, res) => {
-    const uptime = process.uptime();
-    const status = {
-        status: 'OK',
-        message: 'Discord Translation Bot is running',
-        uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
-        servers: client.guilds ? client.guilds.cache.size : 0,
-        timestamp: new Date().toISOString()
-    };
-    
-    console.log(`Health check requested from ${req.ip}`);
-    res.json(status);
+    try {
+        const uptime = process.uptime();
+        const status = {
+            status: 'OK',
+            message: 'Discord Translation Bot is running',
+            uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`,
+            servers: client.guilds ? client.guilds.cache.size : 0,
+            timestamp: new Date().toISOString(),
+            version: '1.0.0'
+        };
+        
+        console.log(`Health check requested from ${req.ip || req.connection.remoteAddress}`);
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).json(status);
+    } catch (error) {
+        console.error('Error in root endpoint:', error);
+        res.status(500).json({ status: 'error', message: 'Internal server error' });
+    }
 });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    const isReady = client.isReady();
-    res.status(isReady ? 200 : 503).json({
-        status: isReady ? 'healthy' : 'not ready',
-        botStatus: isReady ? 'connected' : 'disconnected',
-        timestamp: new Date().toISOString()
-    });
+    try {
+        const isReady = client.isReady();
+        const healthStatus = {
+            status: isReady ? 'healthy' : 'not ready',
+            botStatus: isReady ? 'connected' : 'disconnected',
+            timestamp: new Date().toISOString(),
+            port: PORT
+        };
+        
+        res.status(isReady ? 200 : 503).json(healthStatus);
+    } catch (error) {
+        console.error('Error in health endpoint:', error);
+        res.status(500).json({ status: 'error', message: 'Health check failed' });
+    }
 });
 
-// Start the web server
-app.listen(PORT, '0.0.0.0', () => {
+// Ping endpoint for simple checks
+app.get('/ping', (req, res) => {
+    res.status(200).send('pong');
+});
+
+// Start the web server with error handling
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server running on port ${PORT}`);
     console.log(`📡 Health check: http://localhost:${PORT}/`);
     console.log(`🔍 Status endpoint: http://localhost:${PORT}/health`);
 });
 
-// Event listener for when the bot is ready
-client.once('ready', () => {
+// Handle server errors
+server.on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} is busy, trying port ${PORT + 1}`);
+        server.listen(PORT + 1, '0.0.0.0');
+    }
+});
+
+// Ensure server is properly listening
+server.on('listening', () => {
+    console.log(`✅ Server successfully listening on port ${server.address().port}`);
+});
+
+// Event listener for when the bot is ready (using clientReady to avoid deprecation warning)
+client.once('clientReady', () => {
     console.log(`🤖 Bot is ready! Logged in as ${client.user.tag}`);
     console.log(`📝 Bot is active in ${client.guilds.cache.size} servers`);
     
-    // Set bot status
-    client.user.setActivity('flag reactions for translations', { type: 'WATCHING' });
+    // Set bot status (using ActivityType enum for discord.js v14)
+    client.user.setActivity('flag reactions for translations', { type: 3 }); // 3 = WATCHING
 });
 
 // Event listener for message reactions
