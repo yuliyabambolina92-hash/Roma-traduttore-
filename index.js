@@ -22,7 +22,7 @@ const {
     ActivityType,
     Events 
 } = require('discord.js');
-const translate = require('@vitalets/google-translate-api');
+const translate = require('@vitalets/google-translate-api'). default;
 const express = require('express');
 require('dotenv').config();
 
