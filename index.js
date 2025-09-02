@@ -22,10 +22,7 @@ const {
     ActivityType,
     Events 
 } = require('discord.js');
-const translate = require('translate');
-translate.engine = 'libre';
-translate.key = null; // Non serve chiave
-translate.url = 'https://libretranslate.de'; // Server pubblico stabile
+const { translate } = require('@vitalets/google-translate-api');
 const express = require('express');
 require('dotenv').config();
 
@@ -467,15 +464,16 @@ async function translateText(text, targetLang, retryCount = 0) {
         
         // Race between translation and timeout
         const result = await Promise.race([
-    translate(validation.content, { to: targetLang }),
-    timeoutPromise
-]);
+            translate(validation.content, options),
+            timeoutPromise
+        ]);
         
         // Validate result
-        if (!result || result.trim() === '') {
-    throw new Error('Empty translation result');
-}
-const translatedText = result.trim();
+        if (!result || !result.text || result.text.trim() === '') {
+            throw new Error('Empty translation result');
+        }
+        
+        const translatedText = result.text.trim();
         
         // Check if translation is identical to original (might indicate no translation needed)
         if (translatedText.toLowerCase() === validation.content.toLowerCase()) {
