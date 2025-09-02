@@ -1,35 +1,18 @@
-# Discord Translation Bot v2.0
+# Discord Translation Bot
 
-A comprehensive, production-ready Discord bot that automatically translates messages when users react with flag emojis. Built with the latest discord.js v14.22.1 and optimized for reliability, performance, and scalability.
+A Discord bot that automatically translates messages when users react with flag emojis using the free Google Translate API.
 
-## 🌟 Features
+## Features
 
-### Core Translation Features
-- 🌐 **100+ Languages Supported** - Comprehensive flag emoji to language mapping
-- 🚀 **Real-time Translation** - Instant message translation with emoji reactions
-- 🔄 **Smart Caching** - Prevents duplicate translations with 60-second intelligent cache
-- 🎯 **Auto-detection** - Automatically detects source language for optimal results
-- 🛡️ **Content Filtering** - Ignores emoji-only, URL-only, and mention-only messages
-
-### Technical Excellence
-- ⚡ **Discord.js v14.22.1** - Latest stable version with all modern features
-- 🔧 **Robust Error Handling** - Comprehensive error recovery and user-friendly messages
-- 📊 **Performance Monitoring** - Built-in metrics and performance tracking
-- 🗃️ **Partial Message Support** - Handles Discord partial messages and reactions
-- 🤖 **Bot-aware** - Ignores reactions from other bots
-
-### Production Features
-- 🌍 **Express Web Server** - Full-featured web server for uptime monitoring
-- 📈 **Health Endpoints** - Multiple monitoring endpoints (/health, /stats, /languages)
-- 🔄 **Retry Logic** - Intelligent retry system for transient failures
-- 📝 **Detailed Logging** - Comprehensive logging for debugging and monitoring
-- 🛑 **Graceful Shutdown** - Proper cleanup and shutdown handling
-
-### Deployment Ready
-- 🏗️ **Replit Optimized** - Fully configured for Replit deployment
-- ☁️ **Cloud Compatible** - Ready for Render, Heroku, Railway, and other platforms
-- 📦 **Dependency Locked** - Specific versions for consistent deployment
-- 🔒 **Security Focused** - Proper secret management and environment configuration
+- 🌐 Automatic message translation using flag emoji reactions
+- 🚀 Built with discord.js v14
+- 🆓 Uses free Google Translate API (@vitalets/google-translate-api)
+- 🏴 Supports 50+ languages with comprehensive flag emoji mapping
+- 🔧 Easy setup and deployment on Replit
+- 🛡️ Robust error handling and logging
+- 📝 Handles message and reaction partials
+- 🌍 Built-in Express web server for uptime monitoring
+- ⏰ Duplicate translation prevention with smart caching
 
 ## Supported Languages
 
