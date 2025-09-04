@@ -2,13 +2,26 @@ import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
 import express from 'express';
 import dotenv from 'dotenv';
 import axios from 'axios';
-import NodeCache from 'node-cache';
 
 // Load environment variables
 dotenv.config();
 
-// Initialize cache for 60 seconds
-const translationCache = new NodeCache({ stdTTL: 60 });
+// Manual cache implementation for 60 seconds
+const translationCache = new Map();
+const CACHE_TTL = 60000; // 60 seconds in milliseconds
+
+// Cache cleanup function
+function cleanupCache() {
+  const now = Date.now();
+  for (const [key, value] of translationCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      translationCache.delete(key);
+    }
+  }
+}
+
+// Run cache cleanup every minute
+setInterval(cleanupCache, 60000);
 
 // Express app for uptime monitoring
 const app = express();
@@ -150,8 +163,8 @@ const languageNames = {
   'tw': 'Twi',
 };
 
-// LibreTranslate API configuration
-const LIBRETRANSLATE_URL = 'https://libretranslate.com/translate';
+// Lingva Translate API configuration
+const LINGVA_BASE_URL = 'https://lingva.ml/api/v1';
 
 // Initialize Discord client
 const client = new Client({
@@ -190,22 +203,25 @@ function shouldIgnoreMessage(content) {
          isOnlyMentions(content);
 }
 
-// Translation function
+// Translation function using Lingva Translate
 async function translateText(text, targetLang, sourceLang = 'auto') {
   try {
-    const response = await axios.post(LIBRETRANSLATE_URL, {
-      q: text,
-      source: sourceLang,
-      target: targetLang,
-      format: 'text'
-    }, {
+    // Encode the text for URL
+    const encodedText = encodeURIComponent(text);
+    const url = `${LINGVA_BASE_URL}/${sourceLang}/${targetLang}/${encodedText}`;
+    
+    const response = await axios.get(url, {
+      timeout: 10000,
       headers: {
-        'Content-Type': 'application/json'
-      },
-      timeout: 10000
+        'User-Agent': 'Discord-Translation-Bot'
+      }
     });
 
-    return response.data.translatedText;
+    if (response.data && response.data.translation) {
+      return response.data.translation;
+    } else {
+      throw new Error('Invalid response from translation service');
+    }
   } catch (error) {
     console.error('Translation error:', error.message);
     if (error.response) {
@@ -265,13 +281,14 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     // Check cache to avoid duplicate translations
     const cacheKey = `${message.id}_${emoji}`;
-    if (translationCache.has(cacheKey)) {
+    const cached = translationCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
       console.log(`Translation already cached for message ${message.id} with emoji ${emoji}`);
       return;
     }
 
     // Mark as being processed
-    translationCache.set(cacheKey, 'processing');
+    translationCache.set(cacheKey, { status: 'processing', timestamp: Date.now() });
 
     const targetLang = flagToLanguage[emoji];
     const languageName = languageNames[targetLang] || targetLang;
@@ -292,13 +309,13 @@ client.on('messageReactionAdd', async (reaction, user) => {
           { name: 'Language', value: `${emoji} ${languageName}`, inline: true }
         ])
         .setTimestamp()
-        .setFooter({ text: 'Powered by LibreTranslate' });
+        .setFooter({ text: 'Powered by Lingva Translate' });
 
       // Reply to the original message
       await message.reply({ embeds: [embed] });
 
       // Update cache with success
-      translationCache.set(cacheKey, 'completed');
+      translationCache.set(cacheKey, { status: 'completed', timestamp: Date.now() });
       
       console.log(`✅ Successfully translated message to ${languageName}`);
 
@@ -323,7 +340,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
       }
 
       // Remove from cache to allow retry
-      translationCache.del(cacheKey);
+      translationCache.delete(cacheKey);
     }
 
   } catch (error) {
@@ -350,8 +367,8 @@ app.get('/', (req, res) => {
     memory: process.memoryUsage(),
     supportedLanguages: Object.keys(flagToLanguage).length,
     cacheStats: {
-      keys: translationCache.keys().length,
-      stats: translationCache.getStats()
+      keys: translationCache.size,
+      entries: translationCache.size
     }
   });
 });
@@ -397,6 +414,9 @@ const gracefulShutdown = (signal) => {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
+// Global server reference for graceful shutdown
+let server;
+
 // Start the application
 async function startBot() {
   try {
@@ -409,7 +429,7 @@ async function startBot() {
     }
 
     // Start Express server
-    const server = app.listen(PORT, '0.0.0.0', () => {
+    server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🌐 Web server running on port ${PORT}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
     });
